@@ -1,0 +1,7 @@
+﻿bin/
+obj/
+Properties/
+
+App.config
+ConsoleMiniApp.csproj
+Program.cs
