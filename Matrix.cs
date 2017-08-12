@@ -51,9 +51,6 @@ namespace ConsoleMiniApp
         // max width == console width
         static int maxWidth;
 
-        // flag to access for draw(used whan resized window, so this flag stop thread that start draw)
-        static bool canDraw;
-
         // currentCol - number of columt that paint faling line
         int currentCol;
 
@@ -89,9 +86,9 @@ namespace ConsoleMiniApp
         }
         #endregion
 
-        void TailFalingLine(ref int headElement, ref int lastElement, ref int charIndex, int falLineLength)
+        void CalcFalingLineParams(ref int headElement, ref int lastElement, ref int charIndex, int falLineLength)
         {
-            /*  TailFalingLine - calculate chars number that need to be draw upward head char(need find lastElement)
+            /*  CalcFalingLineParams - calculate chars number that need to be draw upward head char(need find lastElement)
              *  Calling every time when head char moving down
              *  
              *  At start:
@@ -200,7 +197,7 @@ namespace ConsoleMiniApp
 
             lock (key)
             {
-                if (canDraw)
+                try
                 {
                     Console.ForegroundColor = curColor;
 
@@ -208,7 +205,7 @@ namespace ConsoleMiniApp
                     Console.SetCursorPosition(currentCol, drawPosition);
                     Console.Write(curChar);
                 }
-                else
+                catch(ArgumentOutOfRangeException e)
                 {
                     AbortCurentThread();
                 }
@@ -224,12 +221,12 @@ namespace ConsoleMiniApp
             {
                 lock (key)
                 {
-                    if (canDraw)
-                    { 
+                    try
+                    {
                         Console.SetCursorPosition(currentCol, lastCharPosition);
                         Console.Write(" ");
                     }
-                    else
+                    catch(ArgumentOutOfRangeException e)
                     {
                         AbortCurentThread();
                     }
@@ -297,7 +294,7 @@ namespace ConsoleMiniApp
                     usedChars = new List<char>();
 
                     // calculate currentElement, lastElement, and change charIndex(if needed)
-                    TailFalingLine(ref currentElement, ref lastElement, ref charIndex, falLineLength);
+                    CalcFalingLineParams(ref currentElement, ref lastElement, ref charIndex, falLineLength);
 
                     // draw faling line from headPosition to lastElement
                     for (; currentElement >= lastElement; currentElement--)
@@ -325,14 +322,13 @@ namespace ConsoleMiniApp
 
         void AbortCurentThread()
         {
-            // aborting current thread, used in DrawChar, ClearLasChar method whan canDraw var is false
+            // aborting current thread, used in DrawChar, ClearLasChar methods
             Thread.CurrentThread.Abort();
         }
 
         void AbortAllThreads()
         {
             // Aborting all thread
-            canDraw = false;
             factoryThread.Abort();
             foreach (var thread in threadsList)
             {
@@ -344,7 +340,6 @@ namespace ConsoleMiniApp
         void StartThreads()
         {
             // factory method that span threads for drawing faling line
-            canDraw = true;
             maxHeight = Console.WindowHeight - 1;
             maxWidth = Console.WindowWidth - 1;
 
@@ -361,7 +356,6 @@ namespace ConsoleMiniApp
             }
         }
 
-
         void CheckConsoleSize()
         {
             // offline thread that always check window size
@@ -375,14 +369,12 @@ namespace ConsoleMiniApp
             }
         }
 
-
         void StartFactory()
         {
             // create, remember and start factory
             factoryThread = new Thread(StartThreads);
             factoryThread.Start();
         }
-
 
 
         public void Start()
