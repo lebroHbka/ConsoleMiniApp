@@ -4,6 +4,7 @@ using System.Threading;
 
 namespace ConsoleMiniApp
 {
+    
     class Matrix
     {
         public int MaxLineLenght
@@ -28,8 +29,9 @@ namespace ConsoleMiniApp
             set { minLineSpeed = value; }
         }
 
-
         #region Vars
+        delegate void ConsoleEvent();
+
         const ConsoleColor white = ConsoleColor.White;
         const ConsoleColor greenLight = ConsoleColor.Green;
         const ConsoleColor greenDark = ConsoleColor.DarkGreen;
@@ -49,8 +51,20 @@ namespace ConsoleMiniApp
         // max width == console width
         static int maxWidth;
 
+        // flag to access for draw(used whan resized window, so this flag stop thread that start draw)
+        static bool canDraw;
+
         // currentCol - number of columt that paint faling line
         int currentCol;
+
+        // list of all threads
+        List<Thread> threadsList;
+
+        // thread for factory method(span threads with faling line method)
+        Thread factoryThread;
+
+        // event that triggered what console resized
+        event ConsoleEvent ResizeWindow;
 
         #endregion
 
@@ -58,11 +72,15 @@ namespace ConsoleMiniApp
         static Matrix()
         {
             Console.CursorVisible = false;
+
             maxHeight = Console.WindowHeight - 1;
             maxWidth = Console.WindowWidth - 1;
         }
         public Matrix()
         {
+            ResizeWindow += AbortAllThreads;
+            ResizeWindow += Console.Clear;
+            ResizeWindow += StartFactory;
         }
 
         Matrix(int column)
@@ -182,15 +200,18 @@ namespace ConsoleMiniApp
 
             lock (key)
             {
-                Console.ForegroundColor = curColor;
-                //if (currentCol >= Console.WindowWidth)
-                //{
-                //    Thread.CurrentThread.Abort();
-                //}
+                if (canDraw)
+                {
+                    Console.ForegroundColor = curColor;
 
-                // Draw chars
-                Console.SetCursorPosition(currentCol, drawPosition);
-                Console.Write(curChar);
+                    // Draw chars
+                    Console.SetCursorPosition(currentCol, drawPosition);
+                    Console.Write(curChar);
+                }
+                else
+                {
+                    AbortCurentThread();
+                }
             }
         }
 
@@ -203,8 +224,15 @@ namespace ConsoleMiniApp
             {
                 lock (key)
                 {
-                    Console.SetCursorPosition(currentCol, lastCharPosition);
-                    Console.Write(" ");
+                    if (canDraw)
+                    { 
+                        Console.SetCursorPosition(currentCol, lastCharPosition);
+                        Console.Write(" ");
+                    }
+                    else
+                    {
+                        AbortCurentThread();
+                    }
                 }
             }
         }
@@ -295,17 +323,73 @@ namespace ConsoleMiniApp
         }
 
 
-        public void Start()
+        void AbortCurentThread()
         {
+            // aborting current thread, used in DrawChar, ClearLasChar method whan canDraw var is false
+            Thread.CurrentThread.Abort();
+        }
+
+        void AbortAllThreads()
+        {
+            // Aborting all thread
+            canDraw = false;
+            factoryThread.Abort();
+            foreach (var thread in threadsList)
+            {
+                thread.Abort();
+            }
+        }
+
+
+        void StartThreads()
+        {
+            // factory method that span threads for drawing faling line
+            canDraw = true;
+            maxHeight = Console.WindowHeight - 1;
+            maxWidth = Console.WindowWidth - 1;
+
+            threadsList = new List<Thread>();
+
             for (int i = 0; i < maxWidth; i++)
             {
-                new Thread(new Matrix(i).FalingLine).Start();
-
+                Thread tmpThread = new Thread(new Matrix(i).FalingLine);
+                threadsList.Add(tmpThread);
+                tmpThread.Start();
+                
                 // delay
-                Thread.Sleep(new Random().Next(15, 50));
+                Thread.Sleep(new Random().Next(20, 70));
             }
+        }
 
-            
+
+        void CheckConsoleSize()
+        {
+            // offline thread that always check window size
+            while (true)
+            {
+                if((Console.WindowWidth - 1 != maxWidth) || (Console.WindowHeight - 1 != maxHeight))
+                {
+                    ResizeWindow.Invoke();
+                }
+                Thread.Sleep(5);
+            }
+        }
+
+
+        void StartFactory()
+        {
+            // create, remember and start factory
+            factoryThread = new Thread(StartThreads);
+            factoryThread.Start();
+        }
+
+
+
+        public void Start()
+        {
+            // user start method
+            new Thread(CheckConsoleSize).Start();
+            StartFactory();
         }
     }
 }
