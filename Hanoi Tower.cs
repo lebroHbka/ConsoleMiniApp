@@ -26,14 +26,30 @@ namespace ConsoleMiniApp
         public int X { get; set; }
         public int Y { get; set; }
         public int Height { get; set; }
-        public int DisksOnPole { get; set; }
+        public int DisksCount
+        {
+            get { return disksOnPole.Count; }
+        }
+        Stack<Disk> disksOnPole;
 
         public Pole(int height, int x, int y)
         {
             Height = height;
             X = x;
             Y = y;
+            disksOnPole = new Stack<Disk>();
         }
+
+        public void AddDisk(Disk d)
+        {
+            disksOnPole.Push(d);
+        }
+
+        public Disk PopDisk()
+        {
+            return disksOnPole.Pop();
+        }
+
     }
 
     class PoleIndexException : Exception
@@ -50,12 +66,18 @@ namespace ConsoleMiniApp
         {
         }
     }
+    class ConsoleSizeException : Exception
+    {
+        public ConsoleSizeException(string msg)
+            : base(msg)
+        {
+        }
+    }
 
 
     // Make all actions(calculate nothing)
     class Controller
     {
-
         public int DisksCount
         {
             get { return diskCount; }
@@ -78,7 +100,6 @@ namespace ConsoleMiniApp
         Model model;
         View view;
 
-        Dictionary<Pole, Stack<Disk>> polesDict;
         List<Pole> polesList;
 
         int diskCount = 5;
@@ -91,7 +112,6 @@ namespace ConsoleMiniApp
         {
             model = new Model(startDiskSize, incDiskWidth, DisksCount, polesCount);
             view = new View();
-            polesDict = new Dictionary<Pole, Stack<Disk>>();
             polesList = new List<Pole>();
         }
 
@@ -115,18 +135,23 @@ namespace ConsoleMiniApp
         }
         #endregion
 
+        #region Enums
+        enum Coordinates
+        {
+            x = 0,
+            y = 1
+        }
+        #endregion
+        
         // Create new poles at start
         void MakeStartPoles()
         {
-            // Get poles coordinates from model
-            int[][] allCordinates = model.GetPolsCordinates();
-
-            // Create poles with colculated coordinates
-            foreach (var cordXY in allCordinates)
+            // Get poles coordinates from model, and than create poles
+            foreach (var cord in model.GetPolsCordinates())
             {
-                Pole p = new Pole(DisksCount + 1, cordXY[0], cordXY[1]);
+                Pole p = new Pole(DisksCount + 1, 
+                                  cord[(int)Coordinates.x], cord[(int)Coordinates.y]);
                 view.DrawPole(p);
-                polesDict[p] = new Stack<Disk>();
                 polesList.Add(p);
             }
         }
@@ -140,23 +165,21 @@ namespace ConsoleMiniApp
             foreach (var disk in model.GetStartDisks(startPole))
             {
                 view.DrawDisk(disk);
-                polesDict[startPole].Push(disk);
+                startPole.AddDisk(disk);
             }
-
         }
 
         // Method that move the highest disk from oldPole, and put if to another
         void MoveDisk(Pole oldPole, Pole newPole)
         {
             // remove disk from old pole
-            Disk d = polesDict[oldPole].Pop();
-            model.RemoveDiskFromPole(oldPole);
+            Disk d = oldPole.PopDisk();
             view.ClearDisk(d);
             view.DrawPole(oldPole);     // update empty space where was disk
 
             // add disk to new pole
-            model.AddDiskToPole(newPole, d);
-            polesDict[newPole].Push(d);
+            model.CalculateCoordinates(newPole, d);
+            newPole.AddDisk(d);
             view.DrawDisk(d);
         }
 
@@ -170,7 +193,6 @@ namespace ConsoleMiniApp
                 MoveDisk(start, end);
                 HanoiAlgorithm(diskCount - 1, help, end, start);
             }
-            
         }
 
         // Method that calculate helpPole index, if user change settings
@@ -205,15 +227,23 @@ namespace ConsoleMiniApp
                 throw new DisksCountException("Incorect disk count");
             }
 
-            // Draw poles and disks
-            MakeStartPoles();
-            MakeStartDisks();
+            try
+            {
+                // Draw poles and disks
+                MakeStartPoles();
+                MakeStartDisks();
+            }
+            catch (ConsoleSizeException)
+            {
+                throw;
+            }
 
             // calculate helpPole Number in case user change settings
             helpPoleNumber = GetHelpPoleNumber();
 
             // Start
             HanoiAlgorithm(DisksCount, polesList[StartPoleNumber], polesList[EndPoleNumber], polesList[helpPoleNumber]);
+
         }
     }
 
@@ -239,11 +269,8 @@ namespace ConsoleMiniApp
         }
 
         // Method return start poles coordinates
-        public int[][] GetPolsCordinates()
+        public IEnumerable<int[]> GetPolsCordinates()
         {
-            // Used get poles coordinates at start
-            int[][] res = new int[polesCount][];
-
             // all this calculation for place poles in middle of the console
             int maxDiskWidth = startDiskSize + incDiskWidth * (DisksCount - 1);
             int freeWidthSpace = Console.WindowWidth - maxDiskWidth*3;
@@ -254,59 +281,52 @@ namespace ConsoleMiniApp
             int poleStartX = (freeWidthSpace / 2 + maxDiskWidth / 2) + 1;
             int poleStartY = (freeHeightSpace / 2 + maxDiskHeight) - 3;
 
-            for (int i = 0; i < polesCount; i++)
+            if((freeWidthSpace <= 0) || (freeHeightSpace <= 0))
             {
-                res[i] = new int[]{
-                                    poleStartX + i * maxDiskWidth,   // x
-                                    poleStartY                       // y
-                                   };
+                throw new ConsoleSizeException("Window size is to small");
             }
 
-            // return poles coordinates
-            return res;
+            for (int i = 0; i < polesCount; i++)
+            {
+                int[] poleCoordinat = {
+                                         poleStartX + i * maxDiskWidth,   // x
+                                         poleStartY                       // y
+                                      };
+
+                // return pole coordinates
+                yield return poleCoordinat;
+            }
         }
 
-        // Add disk to pole
-        public void AddDiskToPole(Pole p, Disk disk)
+        //  Calculat and apply disk X,Y 
+        public void CalculateCoordinates(Pole p, Disk disk)
         {
-            /*
-             *  Calculating disks X,Y 
-             */
-            disk.Y = p.Y + p.Height - p.DisksOnPole - 1;
+            disk.Y = p.Y + p.Height - p.DisksCount - 1;
             disk.X = p.X - disk.Size / 2;
-            p.DisksOnPole++;
         }
 
-        // Removing highest disk from pole
-        public void RemoveDiskFromPole(Pole p)
+        // Create new disk, calculate parameters and return 
+        public IEnumerable<Disk> GetStartDisks(Pole startPole)
         {
-            p.DisksOnPole--;
-        }
-
-        // Calculate all disks parametres and return list of them
-        public List<Disk> GetStartDisks(Pole startPole)
-        {
-            
+            // calculate start disk width
             int diskWidth = startDiskSize + incDiskWidth * (DisksCount - 1);
-            List<Disk> disksList = new List<Disk>();
 
             // Create new disks with correct width
             for (int i = 0; i < DisksCount; i++)
             {
-                // create disk
-                Disk tmp = new Disk(diskWidth, 0, 0);
-                disksList.Add(tmp);
+                // create new disk
+                Disk d = new Disk(diskWidth, 0, 0);
 
-                // calculate coordinates
-                AddDiskToPole(startPole, tmp);
+                // calculate and apply new coordinates
+                CalculateCoordinates(startPole, d);
 
                 // decrease width for next disk
                 diskWidth -= incDiskWidth;
+
+                // return disk
+                yield return d;
             }
-
-            return disksList;
         }
-
     }
 
     // Console drawing
@@ -324,12 +344,22 @@ namespace ConsoleMiniApp
         {
             // Draw poles level that have no disk (p.Height - p.DisksOnPole)
             Console.ForegroundColor = poleColor;
-            for (int i = 0; i < p.Height - p.DisksOnPole; i++)
+            for (int i = 0; i < p.Height - p.DisksCount; i++)
             {
                 Console.SetCursorPosition(p.X, p.Y + i);
                 Console.Write(poleElement);
             }
             Console.ResetColor();
+        }
+
+        // Clear pole
+        public void ClearPole(Pole p)
+        {
+            for (int i = 0; i < p.Height; i++)
+            {
+                Console.SetCursorPosition(p.X, p.Y + i);
+                Console.Write(' ');
+            }
         }
 
         // Draw disk
@@ -404,6 +434,10 @@ namespace ConsoleMiniApp
                 Console.WriteLine(e.Message);
             }
             catch(DisksCountException e)
+            {
+                Console.WriteLine(e.Message);
+            }
+            catch(ConsoleSizeException e)
             {
                 Console.WriteLine(e.Message);
             }
